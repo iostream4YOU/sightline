@@ -1,0 +1,21 @@
+{
+  "_how_to": "Copy this file to movies.json (same folder), put your images next to it, and reload cinema.html. Every field except id is optional. 'still' plays on the big screen, 'poster' shows in the picker. Use images you have the rights to.",
+  "movies": [
+    {
+      "id": "maha",
+      "title": "Mahayoddha",
+      "sub": "Day of Reckoning",
+      "genre": "Superhero · Action",
+      "lang": "Hindi · Tamil · Telugu · English",
+      "cert": "UA 13+",
+      "dur": "2h 58m",
+      "blurb": "Six heroes. One sky.",
+      "poster": "maha-poster.jpg",
+      "still": "maha-still.jpg",
+      "colors": ["#ff7a1a", "#6a1bff", "#07030f"]
+    },
+    { "id": "kavach", "still": "kavach-still.jpg" },
+    { "id": "rakshas" },
+    { "id": "chakra" }
+  ]
+}

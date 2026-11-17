@@ -1,0 +1,8 @@
+{
+  "_note": "Films for the cinema page, fetched live from TMDB through /api/tmdb (the key stays on the server: TMDB_API_KEY env var on Vercel, .env.local when running serve.py). Edit 'films' to change the line-up; exact titles work best. 'fillWithNowPlaying' tops the list up with what is in Indian cinemas right now.",
+  "region": "IN",
+  "language": "en-US",
+  "films": ["Avengers: Doomsday", "Spider-Man: Brand New Day", "Godzilla Minus Zero"],
+  "fillWithNowPlaying": true,
+  "maxFilms": 6
+}

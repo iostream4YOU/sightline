@@ -1,0 +1,10 @@
+# secrets
+.env
+.env.local
+.env.*.local
+# tooling
+.claude/
+.vercel/
+node_modules/
+.DS_Store
+__pycache__/
