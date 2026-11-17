@@ -2,6 +2,10 @@
 
 **See the view before you book.**
 
+### ▶ Live: [sightline3d.vercel.app](https://sightline3d.vercel.app)
+
+[Movies](https://sightline3d.vercel.app/cinema.html) · [Concert](https://sightline3d.vercel.app/stadium.html?event=concert) · [Football](https://sightline3d.vercel.app/stadium.html?event=football)
+
 Every stadium and cinema is designed around *sightlines*, the line of sight from each seat to the stage. Sightline renders yours: you fly into a live 3D venue, pick your exact seat and see what you'll see from it before you pay.
 
 Three experiences, all real-time 3D in the browser (three.js), priced in ₹ INR:
@@ -35,6 +39,8 @@ Change the film line-up in `tmdb.json`. To use your own posters or stills, see `
 ## Deploy (Vercel)
 
 Static site plus one serverless function (`api/tmdb.js`) that keeps the TMDB key on the server.
+
+Pushes to `main` deploy automatically. To set it up on your own account:
 
 ```bash
 vercel --prod
