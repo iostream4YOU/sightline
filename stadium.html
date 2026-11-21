@@ -357,6 +357,7 @@ const qForce = (location.search.match(/[?&]q=(\d)/) || [])[1];
 /* default = the fastest, cleanest level (?q=6); ?hq or ?q=0…5 still opt into heavier effects */
 let qLevel = qForce !== undefined ? Math.min(+qForce, QL.length - 1) : HQ ? 0 : DEFAULT_Q, qPending = false;
 function applyQuality() {
+  qLevel = Math.max(0, Math.min(QL.length - 1, qLevel | 0));   // the live step-down and the start-up probe can both bump it
   const q = QL[qLevel];
   const samples = q.dpr >= 1.5 ? 2 : 4;   // Retina pixels are tiny: 2× MSAA looks the same as 4×
   for (const rt of [composer.renderTarget1, composer.renderTarget2]) if (rt.samples !== samples) { rt.samples = samples; rt.dispose(); }
@@ -1837,7 +1838,12 @@ $('tourBtn').onclick = () => { if (tour) stopTour(); else if (S.mode !== 'intro'
    Loop + boot
    ===================================================================== */
 let last = performance.now(), fpsT = 0, fpsN = 0;
+let frameErr = 0, looping = false;
 function frame(now) {
+  requestAnimationFrame(frame);
+  try { tick(now); } catch (e) { if (frameErr++ < 3) console.error('frame error', e); }
+}
+function tick(now) {
   const raw = (now - last) / 1000, dt = Math.min(.05, raw); last = now;
   updateCamera(dt); updateShadow(); updateBlocks(dt); updateRipple(now);
   if (S.hover) positionTip();
@@ -1846,12 +1852,11 @@ function frame(now) {
   if (stageMat) stageMat.uniforms.t.value = now / 1000;
   composer.render(dt);
   /* adaptive quality */
-  if (qPending && !flight) { qPending = false; qLevel++; applyQuality(); fpsT = 0; fpsN = 0; }
+  if (qPending && !flight) { qPending = false; if (qLevel < QL.length - 1) { qLevel++; applyQuality(); } fpsT = 0; fpsN = 0; }
   if (!HQ && qForce === undefined && S.mode !== 'intro' && !document.hidden && raw < .1) {
     fpsT += raw; fpsN++;
     if (fpsT > 1.5) { if (fpsN / fpsT < (qLevel >= DEFAULT_Q ? 30 : 55) && qLevel < QL.length - 1) qPending = true; fpsT = 0; fpsN = 0; }
   }
-  requestAnimationFrame(frame);
 }
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); grade.uniforms.res.value.set(innerWidth, innerHeight);
@@ -1871,10 +1876,35 @@ function measureFps(ms) {
     requestAnimationFrame(f); setTimeout(finish, ms + 300);
   });
 }
-/* compile every shader in the background so the first frame doesn't freeze the page */
-async function warmShaders() {
-  try { await Promise.race([renderer.compileAsync(scene, camera), sleep(9000)]); }
-  catch (e) { console.warn('shader warm-up skipped', e); try { renderer.compile(scene, camera); } catch (e2) {} }
+/* compile every shader in the background, in batches, so the page never freezes.
+   A first visit has no shader cache, and on Macs (ANGLE → Metal) compiling these lit materials can take
+   tens of seconds; rendering before they finish would block the main thread, so we wait for them instead. */
+async function warmShaders(onProgress) {
+  /* one representative mesh per shader variant (material + instancing + geometry layout) */
+  const objs = [], seen = new Set();
+  scene.traverse(o => {
+    if (!((o.isMesh || o.isPoints || o.isLine || o.isSprite) && o.material)) return;
+    const g = o.geometry, key = [].concat(o.material).map(m => m.uuid).join() + (o.isInstancedMesh ? 'I' : '') + (o.instanceColor ? 'C' : '') + (o.isSkinnedMesh ? 'S' : '') + (o.isPoints ? 'P' : o.isLine ? 'L' : o.isSprite ? 'Sp' : '') + (g ? Object.keys(g.attributes).sort().join() + Object.keys(g.morphAttributes || {}).join() : '');
+    if (!seen.has(key)) { seen.add(key); objs.push(o); }
+  });
+  const t0 = performance.now(), B = 8;
+  try {
+    for (let i = 0; i < objs.length; i += B) {
+      await Promise.all(objs.slice(i, i + B).map(o => renderer.compileAsync(o, camera, scene)));
+      if (onProgress) onProgress(Math.min(1, (i + B) / objs.length));
+      if (performance.now() - t0 > 90000) { console.warn('shader warm-up: giving up after 90 s'); break; }
+    }
+  } catch (e) { console.warn('shader warm-up skipped', e); }
+  if (/[?&]debug\b/.test(location.search)) console.log(`[boot] shaders ready in ${Math.round(performance.now() - t0)} ms, ${renderer.info.programs.length} programs`);
+}
+/* ?cold: salt every shader so the GPU's shader cache misses, to reproduce a first visit */
+function saltShaders() {
+  const salt = Math.random().toString(36).slice(2);
+  scene.traverse(o => { for (const m of o.material ? [].concat(o.material) : []) {
+    const prev = m.onBeforeCompile, key = m.customProgramCacheKey.bind(m);
+    m.onBeforeCompile = (sh, r) => { prev.call(m, sh, r); sh.fragmentShader = '// ' + salt + '\n' + sh.fragmentShader; };
+    m.customProgramCacheKey = () => salt + key();
+  } });
 }
 function showGpuNote() {
   const n = document.createElement('div');
@@ -1898,9 +1928,11 @@ async function boot() {
   const p = poseIntro(); camPose.pos.copy(p.pos); camPose.target.copy(p.target); camPose.fov = p.fov;
   updateCamera(0); shC.set(0, 0, 0); applyShadow(shC, shHalf);
   blocks.forEach(B => B.overlay.visible = true);
-  $('ldStep').textContent = 'Preparing shaders…'; await warmShaders();
+  if (/[?&]cold\b/.test(location.search)) saltShaders();
+  $('ldStep').textContent = 'Preparing shaders…';
+  await warmShaders(p => { $('ldStep').textContent = `Preparing shaders… ${Math.round(p * 100)}%`; });
   blocks.forEach(B => B.overlay.visible = false);
-  requestAnimationFrame(frame);
+  looping = true; requestAnimationFrame(frame);
   if (SOFTWARE_GL && !HQ && qForce === undefined) { qLevel = QL.length - 1; applyQuality(); showGpuNote(); }
   else if (!HQ && qForce === undefined && !document.hidden && qLevel === DEFAULT_Q) {
     $('ldStep').textContent = 'Tuning for your screen…';
@@ -1926,7 +1958,13 @@ async function boot() {
 }
 if (/[?&]debug\b/.test(location.search)) window.app = { S, blocks, boxes, chairs, findSeat, selectStand, selectBlock, selectSeat, upgrade, chooseVip, selectChair, setHover, goOverview, camera, renderer, flyTo, V3, boxLight, ZONES, selectFloor, selectZone, keepZone, upgradeZone, qLevel: () => qLevel };
 $('brandTxt').textContent = EVENT === 'concert' ? 'Live in Concert · Stadium Tour' : 'Matchday · Final';
-boot();
+/* the loader must always clear, even if something above throws */
+boot().catch(e => {
+  console.error('boot failed', e);
+  if (!looping) { looping = true; requestAnimationFrame(frame); }
+  $('loader').classList.add('gone'); document.body.classList.add('ready');
+  try { setMode('overview'); } catch (e2) {}
+});
 </script>
 </body>
 </html>
